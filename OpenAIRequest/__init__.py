@@ -46,14 +46,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     
     logging.debug("Downloading blobs to create index...")
     for blob in container_client.list_blobs():
-
-        current_file = open(blob.name.split("sscplus/")[1],mode='w')
-        stream = io.BytesIO()
-        download_blob_to_stream(blob_service_client, container_name="unstructureddocs", blob_name=blob.name, stream=current_file)
-        documents = loader.load_data(current_file)
+        download_blob_to_file(blob_service_client, container_name="unstructureddocs", blob_name=blob.name)
+        documents = loader.load_data(file=Path(blob.name))
     
     logging.debug("Creating index...")
-    index = GPTSimpleVectorIndex(documents)
+    index = GPTSimpleVectorIndex(from_documents=documents)
     #downloader = blob.download_blob(encoding='UTF-8')
     #blob_text = downloader.readall()
     #print(f"Blob contents: {blob_text}")
@@ -105,3 +102,16 @@ def download_blob_to_string(blob_service_client: BlobServiceClient, container_na
 def download_blob_to_stream(blob_service_client: BlobServiceClient, container_name, blob_name, stream):
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
     blob_client.download_blob().readinto(stream)
+
+def download_blob_to_file(blob_service_client: BlobServiceClient, container_name, blob_name):
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+
+    basepath = os.path.dirname(blob_name)
+    logging.info("THE BASEPATH IS" + basepath)
+    isExist = os.path.exists(os.path.dirname(blob_name))
+    if not isExist:
+        os.makedirs(os.path.dirname(blob_name))
+
+    with open(file=blob_name, mode="wb") as sample_blob:
+        download_stream = blob_client.download_blob()
+        sample_blob.write(download_stream.readall())
