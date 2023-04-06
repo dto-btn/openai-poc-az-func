@@ -1,3 +1,4 @@
+from typing import List
 import json
 import logging
 import os
@@ -5,12 +6,33 @@ import io
 
 import azure.functions as func
 import openai
+from langchain.llms import AzureOpenAI
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
 
 from pathlib import Path
-from llama_index import GPTSimpleVectorIndex, download_loader
+from llama_index import (
+    GPTSimpleVectorIndex, 
+    download_loader, 
+    LLMPredictor, 
+    PromptHelper,
+    ServiceContext
+)
+from langchain.embeddings import OpenAIEmbeddings
+from llama_index import LangchainEmbedding
+
+class NewAzureOpenAI(AzureOpenAI):
+    stop: List[str] = None
+    @property
+    def _invocation_params(self):
+        params = super()._invocation_params
+        # fix InvalidRequestError: logprobs, best_of and echo parameters are not available on gpt-35-turbo model.
+        params.pop('logprobs', None)
+        params.pop('best_of', None)
+        params.pop('echo', None)
+        #params['stop'] = self.stop
+        return params
 
 #storage_account_name = os.environ["STORAGE_ACCNT_NAME"]
 key_vault_name          = os.environ["KEY_VAULT_NAME"]
@@ -31,26 +53,44 @@ openai.api_key      = client.get_secret("AzureOpenAIKey").value
 openai.api_base     = azure_openai_uri
 openai.api_type     = 'azure'
 openai.api_version  = '2022-12-01' # this may change in the future
+os.environ["OPENAI_API_TYPE"]   = "azure"
+os.environ["OPENAI_API_BASE"]   = azure_openai_uri
+os.environ["OPENAI_API_KEY"]    = client.get_secret("AzureOpenAIKey").value
+os.environ["OPENAI_API_VERSION"] = '2022-12-01' # this may change in the future
 
 PDFReader = download_loader("PDFReader")
 loader = PDFReader()
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
 
-    
     logging.info('Python HTTP trigger function processed a request.')
 
     container_client = blob_service_client.get_container_client(container="unstructureddocs")
 
-    documents = []
-    
     logging.debug("Downloading blobs to create index...")
+    # TODO: terrible way to do things, index should be generated elsewhere and simply loaded here.
+    documents = []
     for blob in container_client.list_blobs():
         download_blob_to_file(blob_service_client, container_name="unstructureddocs", blob_name=blob.name)
         documents = loader.load_data(file=Path(blob.name))
     
-    logging.debug("Creating index...")
-    index = GPTSimpleVectorIndex(from_documents=documents)
+    logging.info("Creating index...")
+
+    # Define prompt helper
+    max_input_size = 3000
+    num_output = 256
+    chunk_size_limit = 1000 # token window size per document
+    max_chunk_overlap = 20 # overlap for each token fragment
+    prompt_helper = PromptHelper(max_input_size=max_input_size, num_output=num_output, max_chunk_overlap=max_chunk_overlap, chunk_size_limit=chunk_size_limit)
+
+    llm = NewAzureOpenAI(deployment_name=deployment_name)
+    print(llm)
+    llm_predictor = LLMPredictor(llm=llm)
+    embedding_llm = LangchainEmbedding(OpenAIEmbeddings(model="text-embedding-ada-002", chunk_size=1))
+    service_context = ServiceContext.from_defaults(llm_predictor=llm_predictor, prompt_helper=prompt_helper, embed_model=embedding_llm)
+    #service_context = ServiceContext(llm_predictor=llm_predictor, prompt_helper=prompt_helper, embed_model=embedding_llm, node_parser=None, llama_logger=None)
+
+    index = GPTSimpleVectorIndex.from_documents(documents, service_context=service_context)
     #downloader = blob.download_blob(encoding='UTF-8')
     #blob_text = downloader.readall()
     #print(f"Blob contents: {blob_text}")
@@ -72,8 +112,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         else:
             msg = req_body.get('msg')
 
+    answer = index.query(msg)
+
     if msg:
-        return func.HttpResponse(f"{msg}\nAnwnser:")
+        return func.HttpResponse(f"{msg}\nAnwnser:{answer}")
     else:
         # ideally return json..
         return func.HttpResponse(
