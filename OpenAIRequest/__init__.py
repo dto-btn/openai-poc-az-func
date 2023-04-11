@@ -58,7 +58,7 @@ os.environ["OPENAI_API_BASE"]   = azure_openai_uri
 os.environ["OPENAI_API_KEY"]    = client.get_secret("AzureOpenAIKey").value
 os.environ["OPENAI_API_VERSION"] = '2022-12-01' # this may change in the future
 
-OpendalAzblobReader  = download_loader("OpendalAzblobReader")
+SimpleDirectoryReader  = download_loader("SimpleDirectoryReader")
 
 ##############################################################################
 ##########################-UTIL FUNCTIONS-####################################
@@ -102,24 +102,16 @@ def download_blob_to_file(blob_service_client: BlobServiceClient, container_name
 ##############################################################################
 def main(req: func.HttpRequest) -> func.HttpResponse:
 
-    #container_client = blob_service_client.get_container_client(container="unstructureddocs")
+    container_client = blob_service_client.get_container_client(container="unstructureddocs")
 
     # TODO: terrible way to do things, index should be generated elsewhere and simply loaded here.
-    #for blob in container_client.list_blobs():
-    #    #uncomment for live download ... test only atm
-    #    #download_blob_to_file(blob_service_client, container_name="unstructureddocs", blob_name=blob.name)
-    #    #documents.append(docs[0] for docs in loader.load_data(file=Path(blob.name)))
-    #    print(blob.name)
+    for blob in container_client.list_blobs():
+    #uncomment for live download ... test only atm
+        download_blob_to_file(blob_service_client, container_name="unstructureddocs", blob_name=blob.name)
+        #print(blob.name)
     
-    loader = OpendalAzblobReader(
-        container='unstructureddocs',
-        path='sscplus',
-        endpoint=client.get_secret("openai-storage-connection").value,
-        account_name="scdcciodtoopenaipoc",
-        account_key=client.get_secret("openai-storage-key").value,
-    )
-    documents = loader.load_data()
-    #documents = SimpleDirectoryReader(input_dir='./sscplus').load_data()
+
+    documents = SimpleDirectoryReader(input_dir='./sscplus').load_data()
     logging.info("The documents are:" + ''.join(str(x.doc_id) for x in documents))
 
     logging.info("Creating index...")
