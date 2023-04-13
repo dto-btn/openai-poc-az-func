@@ -1,6 +1,5 @@
 import logging
 import os
-from typing import List
 
 import azure.functions as func
 import openai
@@ -10,21 +9,11 @@ from azure.storage.blob import BlobServiceClient
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.llms import AzureOpenAI
 from llama_index import (GPTSimpleVectorIndex, LangchainEmbedding,
-                         LLMPredictor, PromptHelper, ServiceContext,
-                         download_loader)
+                         LLMPredictor, PromptHelper, ServiceContext, download_loader)
 
-
-class NewAzureOpenAI(AzureOpenAI):
-    stop: List[str] = None
-    @property
-    def _invocation_params(self):
-        params = super()._invocation_params
-        # fix InvalidRequestError: logprobs, best_of and echo parameters are not available on gpt-35-turbo model.
-        params.pop('logprobs', None)
-        params.pop('best_of', None)
-        params.pop('echo', None)
-        #params['stop'] = self.stop
-        return params
+LLAMA_HUB_CONTENTS_URL = "https://raw.githubusercontent.com/emptycrown/loader-hub/main"
+LOADER_HUB_PATH = "/loader_hub"
+LOADER_HUB_URL = LLAMA_HUB_CONTENTS_URL + LOADER_HUB_PATH
 
 #storage_account_name = os.environ["STORAGE_ACCNT_NAME"]
 key_vault_name          = os.environ["KEY_VAULT_NAME"]
@@ -51,6 +40,18 @@ os.environ["OPENAI_API_VERSION"] = '2022-12-01' # this may change in the future
 
 SimpleDirectoryReader  = download_loader("SimpleDirectoryReader")
 
+class NewAzureOpenAI(AzureOpenAI):
+    stop: List[str] = None
+    @property
+    def _invocation_params(self):
+        params = super()._invocation_params
+        # fix InvalidRequestError: logprobs, best_of and echo parameters are not available on gpt-35-turbo model.
+        params.pop('logprobs', None)
+        params.pop('best_of', None)
+        params.pop('echo', None)
+        #params['stop'] = self.stop
+        return params
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
 
     prompt = req.params.get('prompt')
@@ -76,7 +77,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     answer = index.query(prompt)
 
     if prompt:
-        return func.HttpResponse(f"{prompt}\nAnwnser:{answer}")
+        return func.HttpResponse(f"{prompt}\nAnswer:{answer}")
     else:
         # ideally return json..
         return func.HttpResponse(
@@ -92,7 +93,6 @@ def get_index(helper: PromptHelper, temperature: float) -> "GPTSimpleVectorIndex
     for blob in container_client.list_blobs():
         download_blob_to_file(blob_service_client, container_name="unstructureddocs", blob_name=blob.name)
     
-
     documents = SimpleDirectoryReader(input_dir='./sscplus').load_data()
     #logging.info("The documents are:" + ''.join(str(x.doc_id) for x in documents))
 
@@ -107,13 +107,15 @@ def get_index(helper: PromptHelper, temperature: float) -> "GPTSimpleVectorIndex
     return GPTSimpleVectorIndex.from_documents(documents, service_context=service_context)
     
 def download_blob_to_file(blob_service_client: BlobServiceClient, container_name, blob_name):
+    basepath = "/tmp/"
+    
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
-    basepath = os.path.dirname(blob_name)
-    isExist = os.path.exists(os.path.dirname(blob_name))
+    # azure function app only allows write to /tmp on the file system
+    isExist = os.path.exists(basepath + os.path.dirname(blob_name))
     if not isExist:
-        os.makedirs(os.path.dirname(blob_name))
+        os.makedirs(basepath + os.path.dirname(blob_name))
 
-    with open(file=blob_name, mode="wb") as sample_blob:
+    with open(file=basepath + blob_name, mode="wb") as sample_blob:
         download_stream = blob_client.download_blob()
         sample_blob.write(download_stream.readall())

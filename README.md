@@ -14,6 +14,12 @@ pip install openai azure-identity azure-keyvault-secrets llama-index azure-stora
 
 Then once you finish the setup for configs bellow you can simply `func start` and use your function service.
 
+### Deploy to Azure.
+
+Using the Azure extension you can selection your function and click on `Deploy ...` make sure to select the appropriate subscription and then you will be prompted with a list of applications you can deploy to, select the one that is tied to your proper resource group. You can also, once deployed, pushs your `local.settings.json` in the cloud directly (as env settings, on the App screen you can view those in the `Configuration` menu).
+
+
+
 ### Pre-requisites
 
 * VSCode with Azure Dev tools such as anything needed to run app dev locally.
